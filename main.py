@@ -571,13 +571,13 @@ class ChatApp:
             self.user_input.delete(0, tk.END)
 
             self.disable_input()
-            self.add_message("Processing...\n")
+            self.add_message("Anubrata : Processing...\n")
 
             self.root.after(100, self.generate_response, user_question)
 
     def generate_response(self, user_question):
         intent = identify_intent(user_question)
-        pdf_path = 'C:/Users/anubrata/Downloads/project_python/1727955078450_537.pdf'
+        pdf_path = 'C:/Users/anubrata/Downloads/project_python/1727955078450_537AL.pdf'
         
         if intent:
             output = intents[intent](pdf_path)
