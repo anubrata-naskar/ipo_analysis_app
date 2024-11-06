@@ -11,6 +11,9 @@ from FinancialDataExtractor import *
 from AssetsLiabilitiesExtractor import *
 from SectionImageExtractor import *
 
+import tkinter as tk
+from tkinter import filedialog
+
 # Load NLP model
 nlp = spacy.load("en_core_web_sm")
 
@@ -551,6 +554,29 @@ vectorizer = TfidfVectorizer()
 intent_phrases = list(intents.keys())
 intent_vectors = vectorizer.fit_transform(intent_phrases)
 
+
+def select_pdf_file():
+    # Set up a hidden Tkinter root window
+    root = tk.Tk()
+    root.withdraw()  # Hide the root window
+
+    # Open the file dialog to select a PDF file
+    file_path = filedialog.askopenfilename(
+        title="Select a PDF file",
+        filetypes=[("PDF files", "*.pdf")]
+    )
+
+    # Check if a file was selected
+    if file_path:
+        return file_path
+        # Use the file path as needed
+    else:
+        return "No file selected."
+
+# Call the function to open the file dialog
+
+pdf_path = select_pdf_file()
+
 class ChatApp:
     def __init__(self, root):
         self.root = root
@@ -597,7 +623,6 @@ class ChatApp:
 
     def generate_response(self, user_question):
         intent = identify_intent(user_question)
-        pdf_path = 'C:/Users/anubrata/Downloads/project_python/284.pdf'
         
         if intent:
             output = intents[intent](pdf_path)
