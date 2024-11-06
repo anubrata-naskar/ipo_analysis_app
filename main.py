@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import Label, Toplevel
 from PIL import Image, ImageTk
 import pdfplumber
+import pandas as pd
 import spacy
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
@@ -70,250 +71,92 @@ def display_first_page(pdf_path):
         first_page_cache = image_path  # Cache the image path
     return [image_path]  # Return as a list to maintain consistent handling
 
-import pandas as pd
 
-def analysis_total_income(pdf_path):
-    # Get financial data using the existing extract_financial_data function
-    data = extract_financial_data(pdf_path)
-    
-    # Split the data into lines
-    lines = data.split('\n')
-    
-    # Find the Total income line
-    total_income_values = None
-    for line in lines:
-        if 'Total income' in line:
-            # Split the line into parts
-            parts = line.split('|')
-            # Extract only the numeric values, skipping any text
-            values = []
-            for part in parts[1:-1]:  # Skip first and last empty parts from split
-                try:
-                    # Try to convert to float, skip if fails
-                    cleaned_val = part.strip()
-                    if cleaned_val and not cleaned_val.isalpha():  # Check if it's not purely alphabetic
-                        values.append(float(cleaned_val))
-                except ValueError:
-                    continue
-            total_income_values = values
-            break
-    
-    if not total_income_values:
-        return "Could not find Total income data in the document."
-    
-    # Calculate percentage changes
-    changes = []
-    for i in range(len(total_income_values)-1):
-        current_value = total_income_values[i]
-        previous_value = total_income_values[i+1]
+
+
+
+def calculate_percentage_change(current, previous):
+    """Calculate percentage change between two values"""
+    if previous == 0:
+        return 0
+    return ((current - previous) / abs(previous)) * 100
+
+def format_analysis_section(metric_name, values, include_negative=False):
+    """Format the analysis for a single metric"""
+    if not values or len(values) < 2:
+        return f"Insufficient data for {metric_name} analysis.\n"
         
-        # Calculate percentage change
-        pct_change = ((current_value - previous_value) / previous_value) * 100
-        
-        changes.append({
-            'Current Period Value': current_value,
-            'Previous Period Value': previous_value,
-            'Percentage Change': round(pct_change, 2)
-        })
+    result = f"{metric_name} Analysis:\n\n"
     
-    # Create formatted output string
-    result = "Total Income Analysis:\n\n"
-    for i, change in enumerate(changes):
+    for i in range(len(values)-1):
+        current_value = values[i]
+        previous_value = values[i+1]
+        
+        pct_change = calculate_percentage_change(current_value, previous_value)
+        
         result += f"Period {i+1}:\n"
-        result += f"Current Value: ₹{change['Current Period Value']:,.2f}\n"
-        result += f"Previous Value: ₹{change['Previous Period Value']:,.2f}\n"
-        if change['Percentage Change'] > 0:
-            result += f"Percentage Increase: {abs(change['Percentage Change'])}%\n"
+        result += f"Current Value: ₹{current_value:,.2f}\n"
+        result += f"Previous Value: ₹{previous_value:,.2f}\n"
+        
+        if include_negative:
+            result += f"Change: {pct_change:+.2f}%\n"
         else:
-            result += f"Percentage Decrease: {abs(change['Percentage Change'])}%\n"
+            if pct_change > 0:
+                result += f"Percentage Increase: {abs(pct_change):.2f}%\n"
+            else:
+                result += f"Percentage Decrease: {abs(pct_change):.2f}%\n"
+        
         result += "\n"
-    
+        
     return result
+
+
+
+def analyze_total_income(pdf_path):
+    """Analyze only total income metrics"""
+    extractor = FinancialDataExtractor(pdf_path)
+    table_data = extractor.extract_financial_data()
+    parsed_data = parse_tabulated_data(table_data)
+    
+    if not parsed_data or 'total income' not in parsed_data:
+        return "No total income data found in the document."
+        
+    return format_analysis_section('Total Income', parsed_data['total income'])
 
 def analyze_expenses(pdf_path):
-    # Get financial data
-    data = extract_financial_data(pdf_path)
+    """Analyze only expenses metrics"""
+    extractor = FinancialDataExtractor(pdf_path)
+    table_data = extractor.extract_financial_data()
+    parsed_data = parse_tabulated_data(table_data)
     
-    # Split the data into lines
-    lines = data.split('\n')
-    
-    # Find the Total expenses line
-    expense_values = None
-    for line in lines:
-        if 'Total expenses' in line:
-            # Split the line into parts
-            parts = line.split('|')
-            # Extract only the numeric values, skipping any text
-            values = []
-            for part in parts[1:-1]:
-                try:
-                    cleaned_val = part.strip()
-                    if cleaned_val and not cleaned_val.isalpha():
-                        values.append(float(cleaned_val))
-                except ValueError:
-                    continue
-            expense_values = values
-            break
-    
-    if not expense_values:
-        return "Could not find Total expenses data in the document."
-    
-    # Calculate percentage changes
-    changes = []
-    for i in range(len(expense_values)-1):
-        current_value = expense_values[i]
-        previous_value = expense_values[i+1]
+    if not parsed_data or 'total expenses' not in parsed_data:
+        return "No expenses data found in the document."
         
-        # Calculate percentage change
-        pct_change = ((current_value - previous_value) / previous_value) * 100
-        
-        changes.append({
-            'Current Period Value': current_value,
-            'Previous Period Value': previous_value,
-            'Percentage Change': round(pct_change, 2)
-        })
-    
-    # Create formatted output string
-    result = "Total Expenses Analysis:\n\n"
-    for i, change in enumerate(changes):
-        result += f"Period {i+1}:\n"
-        result += f"Current Value: ₹{change['Current Period Value']:,.2f}\n"
-        result += f"Previous Value: ₹{change['Previous Period Value']:,.2f}\n"
-        if change['Percentage Change'] > 0:
-            result += f"Percentage Increase: {abs(change['Percentage Change'])}%\n"
-        else:
-            result += f"Percentage Decrease: {abs(change['Percentage Change'])}%\n"
-        result += "\n"
-    
-    return result
+    return format_analysis_section('Total Expenses', parsed_data['total expenses'])
 
 def analyze_comprehensive_loss(pdf_path):
-    # Get financial data
-    data = extract_financial_data(pdf_path)
+    """Analyze only comprehensive loss metrics"""
+    extractor = FinancialDataExtractor(pdf_path)
+    table_data = extractor.extract_financial_data()
+    parsed_data = parse_tabulated_data(table_data)
     
-    # Split the data into lines
-    lines = data.split('\n')
-    
-    # Find the Total comprehensive loss line
-    loss_values = None
-    for line in lines:
-        if 'Total comprehensive loss' in line:
-            parts = line.split('|')
-            values = []
-            for part in parts[1:-1]:
-                try:
-                    cleaned_val = part.strip()
-                    if cleaned_val and not cleaned_val.isalpha():
-                        values.append(float(cleaned_val))
-                except ValueError:
-                    continue
-            loss_values = values
-            break
-    
-    if not loss_values:
-        return "Could not find Total comprehensive loss data in the document."
-    
-    # Calculate percentage changes
-    changes = []
-    for i in range(len(loss_values)-1):
-        current_value = loss_values[i]
-        previous_value = loss_values[i+1]
+    if not parsed_data or 'comprehensive loss' not in parsed_data:
+        return "No comprehensive loss data found in the document."
         
-        pct_change = ((current_value - previous_value) / previous_value) * 100
-        
-        changes.append({
-            'Current Period Value': current_value,
-            'Previous Period Value': previous_value,
-            'Percentage Change': round(pct_change, 2)
-        })
-    
-    # Create formatted output string
-    result = "Total Comprehensive Loss Analysis:\n\n"
-    for i, change in enumerate(changes):
-        result += f"Period {i+1}:\n"
-        result += f"Current Value: ₹{change['Current Period Value']:,.2f}\n"
-        result += f"Previous Value: ₹{change['Previous Period Value']:,.2f}\n"
-        if change['Percentage Change'] > 0:
-            result += f"Percentage Increase: {abs(change['Percentage Change'])}%\n"
-        else:
-            result += f"Percentage Decrease: {abs(change['Percentage Change'])}%\n"
-        result += "\n"
-    
-    return result
+    return format_analysis_section('Comprehensive Loss', parsed_data['comprehensive loss'])
 
 def analyze_loss_per_share(pdf_path):
-    # Get financial data
-    data = extract_financial_data(pdf_path)
+    """Analyze only loss per share metrics"""
+    extractor = FinancialDataExtractor(pdf_path)
+    table_data = extractor.extract_financial_data()
+    parsed_data = parse_tabulated_data(table_data)
     
-    # Split the data into lines
-    lines = data.split('\n')
-    
-    # Find the Loss per equity share line
-    eps_values = None
-    for line in lines:
-        if 'Loss per equity share' in line:
-            parts = line.split('|')
-            values = []
-            for part in parts[1:-1]:
-                try:
-                    cleaned_val = part.strip()
-                    if cleaned_val and not cleaned_val.isalpha():
-                        values.append(float(cleaned_val))
-                except ValueError:
-                    continue
-            eps_values = values
-            break
-    
-    if not eps_values:
-        return "Could not find Loss per equity share data in the document."
-    
-    # Calculate percentage changes
-    changes = []
-    for i in range(len(eps_values)-1):
-        current_value = eps_values[i]
-        previous_value = eps_values[i+1]
+    if not parsed_data or 'loss per equity share' not in parsed_data:
+        return "No loss per share data found in the document."
         
-        pct_change = ((current_value - previous_value) / previous_value) * 100
-        
-        changes.append({
-            'Current Period Value': current_value,
-            'Previous Period Value': previous_value,
-            'Percentage Change': round(pct_change, 2)
-        })
-    
-    # Create formatted output string
-    result = "Loss per Equity Share Analysis:\n\n"
-    for i, change in enumerate(changes):
-        result += f"Period {i+1}:\n"
-        result += f"Current Value: ₹{change['Current Period Value']:,.2f}\n"
-        result += f"Previous Value: ₹{change['Previous Period Value']:,.2f}\n"
-        if change['Percentage Change'] > 0:
-            result += f"Percentage Increase: {abs(change['Percentage Change'])}%\n"
-        else:
-            result += f"Percentage Decrease: {abs(change['Percentage Change'])}%\n"
-        result += "\n"
-    
-    return result
+    return format_analysis_section('Loss per Share', parsed_data['loss per equity share'])
 
-def analyze_all_metrics(pdf_path):
-    """Analyze all financial metrics and return combined results"""
-    expenses_analysis = analyze_expenses(pdf_path)
-    comprehensive_loss_analysis = analyze_comprehensive_loss(pdf_path)
-    eps_analysis = analyze_loss_per_share(pdf_path)
-    total_income = analysis_total_income(pdf_path)
-    
-    combined_analysis = "\n".join([
-        "=== COMPREHENSIVE FINANCIAL ANALYSIS ===\n",
-        total_income,
-        "\n" + "="*40 + "\n",
-        expenses_analysis,
-        "\n" + "="*40 + "\n",
-        comprehensive_loss_analysis,
-        "\n" + "="*40 + "\n",
-        eps_analysis
-    ])
-    
-    return combined_analysis
+
 
 def analyze_assets(pdf_path):
     # Get assets and liabilities data
@@ -484,22 +327,199 @@ def analyze_assets_liabilities_ratio(pdf_path):
     
     return result
 
+def parse_tabulated_data(table_string):
+    """Parse the tabulated string output into a structured dictionary"""
+    if not isinstance(table_string, str):
+        return None
+        
+    data = {}
+    headers = []
+    
+    # Split the table into lines
+    lines = table_string.split('\n')
+    
+    # Find headers first
+    for line in lines:
+        if '+-' in line:  # Skip grid lines
+            continue
+        if any(word in line.lower() for word in ['particulars', 'march', 'year']):
+            # Extract headers
+            headers = [h.strip() for h in line.split('|') if h.strip()]
+            break
+    
+    for line in lines:
+        # Skip grid lines and empty lines
+        if '+-' in line or not line.strip():
+            continue
+            
+        # Split the line by '|' and clean up the cells
+        cells = [cell.strip() for cell in line.split('|') if cell.strip()]
+        
+        if cells and len(cells) >= 2:
+            # First cell is typically the label/metric name
+            metric = cells[0].lower()
+            
+            # Look for specific keywords in the metric name
+            if any(keyword in metric for keyword in [
+                'total income', 'total expenses', 'comprehensive loss', 
+                'comprehensive profit', 'loss per equity', 'total assets',
+                'total liabilities', 'total equity'
+            ]):
+                # Convert string values to floats, handling commas and parentheses
+                values = []
+                for cell in cells[1:]:
+                    try:
+                        # Remove commas and handle negative numbers in parentheses
+                        clean_cell = cell.replace(',', '').replace('(', '-').replace(')', '')
+                        if clean_cell.strip() and not clean_cell.isalpha():
+                            value = float(clean_cell)
+                            values.append(value)
+                    except ValueError:
+                        continue
+                        
+                if values:  # Only add if we found numeric values
+                    data[metric] = {
+                        'values': values,
+                        'headers': headers[1:len(values)+1] if headers else None
+                    }
+                
+    return data
+
+def format_currency(value):
+    """Format number as currency with appropriate scaling"""
+    abs_value = abs(value)
+    if abs_value >= 10000000:  # Crores
+        return f"₹{value/10000000:.2f} Cr"
+    elif abs_value >= 100000:  # Lakhs
+        return f"₹{value/100000:.2f} L"
+    else:
+        return f"₹{value:,.2f}"
+
+def analyze_metric(metric_name, metric_data, include_headers=True):
+    """Analyze a single metric and format the results"""
+    if not metric_data or 'values' not in metric_data or not metric_data['values']:
+        return f"No data available for {metric_name}\n"
+    
+    values = metric_data['values']
+    headers = metric_data.get('headers', [])
+    
+    result = f"\n{metric_name.upper()} ANALYSIS:\n"
+    result += "=" * (len(metric_name) + 9) + "\n\n"
+    
+    for i in range(len(values)-1):
+        current_value = values[i]
+        previous_value = values[i+1]
+        
+        period_header = f"Period: {headers[i]} vs {headers[i+1]}" if headers and include_headers else f"Period {i+1}"
+        result += f"{period_header}\n"
+        result += f"Current Value: {format_currency(current_value)}\n"
+        result += f"Previous Value: {format_currency(previous_value)}\n"
+        
+        if previous_value != 0:
+            pct_change = ((current_value - previous_value) / abs(previous_value)) * 100
+            if pct_change > 0:
+                result += f"Increase: {abs(pct_change):.2f}%\n"
+            else:
+                result += f"Decrease: {abs(pct_change):.2f}%\n"
+        
+        result += "\n"
+    
+    # Add latest absolute value
+    result += f"Latest Value: {format_currency(values[0])}\n"
+    return result
+
+def analyze_all_metrics(pdf_path):
+    """Comprehensive analysis of all financial metrics"""
+    # Get both financial and balance sheet data
+    financial_extractor = FinancialDataExtractor(pdf_path)
+    balance_sheet_extractor = AssetsLiabilitiesExtractor(pdf_path)
+    
+    financial_data = financial_extractor.extract_financial_data()
+    balance_sheet_data = balance_sheet_extractor.extract_assets_liabilities()
+    
+    # Parse both datasets
+    financial_metrics = parse_tabulated_data(financial_data)
+    balance_sheet_metrics = parse_tabulated_data(balance_sheet_data)
+    
+    if not financial_metrics and not balance_sheet_metrics:
+        return "No financial data could be extracted from the document."
+    
+    analysis = "COMPREHENSIVE FINANCIAL ANALYSIS\n"
+    analysis += "==============================\n\n"
+    
+    # Analyze Income Statement Metrics
+    if financial_metrics:
+        analysis += "INCOME STATEMENT METRICS\n"
+        analysis += "-----------------------\n"
+        for metric_name, data in financial_metrics.items():
+            if metric_name in ['total income', 'total expenses', 'comprehensive loss', 'loss per equity']:
+                analysis += analyze_metric(metric_name, data)
+        analysis += "\n"
+    
+    # Analyze Balance Sheet Metrics
+    if balance_sheet_metrics:
+        analysis += "BALANCE SHEET METRICS\n"
+        analysis += "--------------------\n"
+        for metric_name, data in balance_sheet_metrics.items():
+            if metric_name in ['total assets', 'total liabilities', 'total equity']:
+                analysis += analyze_metric(metric_name, data)
+                
+        # Calculate and add ratio analysis if we have the necessary data
+        if 'total assets' in balance_sheet_metrics and 'total liabilities' in balance_sheet_metrics:
+            analysis += "\nKEY RATIOS\n"
+            analysis += "----------\n"
+            
+            assets = balance_sheet_metrics['total assets']['values']
+            liabilities = balance_sheet_metrics['total liabilities']['values']
+            
+            for i in range(len(assets)):
+                if liabilities[i] != 0:
+                    ratio = assets[i] / liabilities[i]
+                    analysis += f"Assets to Liabilities Ratio (Period {i+1}): {ratio:.2f}\n"
+    
+    return analysis
+
 def analyze_all_balance_sheet_metrics(pdf_path):
-    """Analyze all balance sheet metrics and return combined results"""
-    assets_analysis = analyze_assets(pdf_path)
-    liabilities_analysis = analyze_liabilities(pdf_path)
-    ratio_analysis = analyze_assets_liabilities_ratio(pdf_path)
+    """Focused analysis of balance sheet metrics"""
+    extractor = AssetsLiabilitiesExtractor(pdf_path)
+    data = extractor.extract_assets_liabilities()
     
-    combined_analysis = "\n".join([
-        "=== COMPREHENSIVE BALANCE SHEET ANALYSIS ===\n",
-        assets_analysis,
-        "\n" + "="*40 + "\n",
-        liabilities_analysis,
-        "\n" + "="*40 + "\n",
-        ratio_analysis
-    ])
+    metrics = parse_tabulated_data(data)
+    if not metrics:
+        return "No balance sheet data could be extracted from the document."
     
-    return combined_analysis
+    analysis = "BALANCE SHEET ANALYSIS\n"
+    analysis += "=====================\n\n"
+    
+    # Analyze core balance sheet metrics
+    for metric_name in ['total assets', 'total liabilities', 'total equity']:
+        if metric_name in metrics:
+            analysis += analyze_metric(metric_name, metrics[metric_name])
+            analysis += "\n"
+    
+    # Add ratio analysis
+    if 'total assets' in metrics and 'total liabilities' in metrics:
+        analysis += "FINANCIAL RATIOS\n"
+        analysis += "===============\n\n"
+        
+        assets = metrics['total assets']['values']
+        liabilities = metrics['total liabilities']['values']
+        
+        for i in range(len(assets)):
+            if liabilities[i] != 0:
+                current_ratio = assets[i] / liabilities[i]
+                analysis += f"Assets to Liabilities Ratio (Period {i+1}): {current_ratio:.2f}\n"
+                
+                if i > 0 and liabilities[i-1] != 0:
+                    prev_ratio = assets[i-1] / liabilities[i-1]
+                    pct_change = ((current_ratio - prev_ratio) / prev_ratio) * 100
+                    if pct_change > 0:
+                        analysis += f"Ratio Increased by: {abs(pct_change):.2f}%\n"
+                    else:
+                        analysis += f"Ratio Decreased by: {abs(pct_change):.2f}%\n"
+                analysis += "\n"
+    
+    return analysis
 
 # Mapping intents to functions
 intents = {
@@ -577,7 +597,7 @@ class ChatApp:
 
     def generate_response(self, user_question):
         intent = identify_intent(user_question)
-        pdf_path = 'C:/Users/anubrata/Downloads/project_python/1727955078450_537AL.pdf'
+        pdf_path = 'C:/Users/anubrata/Downloads/project_python/284.pdf'
         
         if intent:
             output = intents[intent](pdf_path)
